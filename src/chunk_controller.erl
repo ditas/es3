@@ -111,7 +111,7 @@ handle_call({initialize, FileName, Length}, _From, State) ->
 handle_call({initialize_local, FileName, I}, _From, #state{chunks_handlers = CH} = State) ->
     CurrentChunksHandlers = maps:get(FileName, CH, []),
     {ok, Pid} = chunk_handler:start_link(FileName, I),
-    {reply, initialized, State#state{chunks_handlers = maps:put(FileName, [{Pid, passive}|CurrentChunksHandlers], CH)}};
+    {reply, initialized, State#state{chunks_handlers = maps:put(FileName, [{I, Pid, passive}|CurrentChunksHandlers], CH)}};
 handle_call({write, FileName, Data}, _From, #state{chunks_handlers = CH, chunks_counters = CC} = State) ->
     CurrentChunksHandlers = maps:get(FileName, CH, []),
     CurrentChunksCounter = maps:get(FileName, CC),
@@ -217,7 +217,7 @@ prepare(FileName, ChunksCount, State) ->
 
                 CurrentChunkHandlers = maps:get(FileName, CH, []),
                 {ok, Pid} = chunk_handler:start_link(FileName, I),
-                S1 = S#state{chunks_handlers = maps:put(FileName, [{Pid, passive}|CurrentChunkHandlers], CH), chunks_counters = maps:put(FileName, ChunksCount, CC)},
+                S1 = S#state{chunks_handlers = maps:put(FileName, [{I, Pid, passive}|CurrentChunkHandlers], CH), chunks_counters = maps:put(FileName, ChunksCount, CC)},
                 S1;
             Rem ->
 
@@ -241,11 +241,11 @@ prepare(FileName, ChunksCount, State) ->
 do_write(ChunksHandlers, Data, ChunksCounter) ->
     do_write(ChunksHandlers, Data, ChunksCounter, []).
 
-do_write([{Pid, active}|T], Data, ChunksCounter, ActiveCH) ->
-    do_write(T, Data, ChunksCounter, [{Pid, active}|ActiveCH]);
-do_write([{Pid, passive}|T], Data, ChunksCounter, ActiveCH) ->
+do_write([{I, Pid, active}|T], Data, ChunksCounter, ActiveCH) ->
+    do_write(T, Data, ChunksCounter, [{I, Pid, active}|ActiveCH]);
+do_write([{I, Pid, passive}|T], Data, ChunksCounter, ActiveCH) ->
     ok = chunk_handler:write(Pid, Data, ChunksCounter),
-    [{Pid, active}|ActiveCH] ++ T.
+    [{I, Pid, active}|ActiveCH] ++ T.
 
 
 
