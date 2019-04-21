@@ -1,0 +1,22 @@
+%%%-------------------------------------------------------------------
+%%% @author pravosudov
+%%% @copyright (C) 2017, <COMPANY>
+%%% @doc
+%%%
+%%% @end
+%%% Created : 14. Sep 2017 18:21
+%%%-------------------------------------------------------------------
+{ application, es3, [
+    {description, "Erlang Simple Storage Service"},
+    {vsn, "0.1.0"},
+    {registered, []},
+    {applications, [
+        kernel,
+        stdlib,
+        lager,
+        cowboy,
+        jsx
+    ]},
+    {mod, {es3_app, []}},
+    {env, []}
+]}.
