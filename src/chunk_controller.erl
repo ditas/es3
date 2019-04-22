@@ -125,13 +125,13 @@ handle_call({write, FileName, Data}, _From, #state{chunks_handlers = CH, chunks_
             Node = lists:nth(Rem, Nodes),
             case rpc:call(Node, chunk_controller, write_local, [FileName, Data, CurrentChunksCounter]) of
                 {badrpc, Reason} ->
-                    lager:error("node start failed ~p ~p", [Node, Reason]);
-                Answer -> %% saved
-                    lager:debug("file saved on node ~p ~p", [Node, Answer])
+                    lager:error("file saving failed ~p ~p", [Node, Reason]);
+                saved -> %% saved
+                    lager:debug("file saved on node ~p ~p", [Node, saved])
             end,
             CH
     end,
-    {reply, saved, State#state{chunks_handlers = CH1, chunks_counters = maps:put(FileName, CurrentChunksCounter - 1, CC)}};
+    {reply, saved, State#state{chunks_handlers = CH1, chunks_counters = maps:put(FileName, CurrentChunksCounter + 1, CC)}};
 handle_call({write_local, FileName, Data, CC}, _From, #state{chunks_handlers = CH} = State) ->
     CurrentChunksHandlers = maps:get(FileName, CH, []),
     CurrentChunksHandlers1 = do_write(CurrentChunksHandlers, Data, CC),
@@ -213,22 +213,22 @@ prepare(FileName, ChunksCount, State) ->
         case (I rem N) of
             0 ->
 
-                io:format("---PREPARE LOCAL---~n"),
+                io:format("---PREPARE LOCAL--- ~p~n", [I]),
 
                 CurrentChunkHandlers = maps:get(FileName, CH, []),
                 {ok, Pid} = chunk_handler:start_link(FileName, I),
-                S1 = S#state{chunks_handlers = maps:put(FileName, [{I, Pid, passive}|CurrentChunkHandlers], CH), chunks_counters = maps:put(FileName, ChunksCount, CC)},
+                S1 = S#state{chunks_handlers = maps:put(FileName, [{I, Pid, passive}|CurrentChunkHandlers], CH), chunks_counters = maps:put(FileName, 1, CC)},
                 S1;
             Rem ->
 
-                io:format("---PREPARE REMOTE---~n"),
+                io:format("---PREPARE REMOTE--- ~p~n", [I]),
 
                 Node = lists:nth(Rem, Nodes),
                 case rpc:call(Node, chunk_controller, initialize_local, [FileName, I]) of
                     {badrpc, Reason} ->
                         lager:error("node start failed ~p ~p", [Node, Reason]);
-                    Answer -> %% initialized
-                        lager:debug("chunk handlers started on node ~p ~p", [Node, Answer])
+                    initialized -> %% initialized
+                        lager:debug("chunk handlers started on node ~p ~p", [Node, initialized])
                 end,
                 S
         end
@@ -241,11 +241,11 @@ prepare(FileName, ChunksCount, State) ->
 do_write(ChunksHandlers, Data, ChunksCounter) ->
     do_write(ChunksHandlers, Data, ChunksCounter, []).
 
-do_write([{I, Pid, active}|T], Data, ChunksCounter, ActiveCH) ->
-    do_write(T, Data, ChunksCounter, [{I, Pid, active}|ActiveCH]);
-do_write([{I, Pid, passive}|T], Data, ChunksCounter, ActiveCH) ->
+do_write([{I, Pid, passive}|T], Data, ChunksCounter, ActiveCH) when I =:= ChunksCounter ->
     ok = chunk_handler:write(Pid, Data, ChunksCounter),
-    [{I, Pid, active}|ActiveCH] ++ T.
+    [{I, Pid, active}|ActiveCH] ++ T;
+do_write([H|T], Data, ChunksCounter, ActiveCH) ->
+    do_write(T, Data, ChunksCounter, [H|ActiveCH]).
 
 
 
