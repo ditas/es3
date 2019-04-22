@@ -245,7 +245,7 @@ do_write([{I, Pid, passive}|T], Data, ChunksCounter, ActiveCH) when I =:= Chunks
     ok = chunk_handler:write(Pid, Data, ChunksCounter),
 %%    [{I, Pid, active}|ActiveCH] ++ T;
 
-    chunk_handler:stop(Pid, normal),
+%%    chunk_handler:stop(Pid, normal), %% if chunk_handler:write/3 is sync call
     [{I, active}|ActiveCH] ++ T;
 do_write([H|T], Data, ChunksCounter, ActiveCH) ->
     do_write(T, Data, ChunksCounter, [H|ActiveCH]).

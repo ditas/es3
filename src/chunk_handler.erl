@@ -38,8 +38,8 @@
 %%% API
 %%%===================================================================
 write(Pid, Data, N) ->
-    gen_server:call(Pid, {write, Data, N}, infinity).
-%%    gen_server:cast(Pid, {write, Data, N}).
+%%    gen_server:call(Pid, {write, Data, N}, infinity).
+    gen_server:cast(Pid, {write, Data, N}).
 
 stop(Pid, Reason) ->
     gen_server:stop(Pid, Reason, 1000).
@@ -69,7 +69,6 @@ start_link(FileName, I) ->
 %% @end
 %%--------------------------------------------------------------------
 init([FileName, I]) ->
-%%    {ok, File} = file:open("storage/" ++ binary_to_list(FileName) ++ "_" ++ integer_to_list(I), [write]),
     {ok, File} = file:open(binary_to_list(FileName) ++ "_" ++ integer_to_list(I), [write]),
     {ok, #state{filename = FileName, chunk_number = I, file = File}}.
 
@@ -88,12 +87,12 @@ init([FileName, I]) ->
     {noreply, NewState :: #state{}, timeout() | hibernate} |
     {stop, Reason :: term(), Reply :: term(), NewState :: #state{}} |
     {stop, Reason :: term(), NewState :: #state{}}).
-handle_call({write, Data, N}, _From, #state{file = File, chunk_number = I} = State) ->
-
-    lager:debug("-------I ~p N ~p", [I, N]),
-
-    ok = file:write(File, Data),
-    {reply, ok, State};
+%%handle_call({write, Data, N}, _From, #state{file = File, chunk_number = I} = State) ->
+%%
+%%    lager:debug("-------I ~p N ~p", [I, N]),
+%%
+%%    ok = file:write(File, Data),
+%%    {reply, ok, State};
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
@@ -108,12 +107,12 @@ handle_call(_Request, _From, State) ->
     {noreply, NewState :: #state{}} |
     {noreply, NewState :: #state{}, timeout() | hibernate} |
     {stop, Reason :: term(), NewState :: #state{}}).
-%%handle_cast({write, Data, N}, #state{file = File, chunk_number = I} = State) ->
-%%
-%%    lager:debug("-------I ~p N ~p", [I, N]),
-%%
-%%    ok = file:write(File, Data),
-%%    {noreply, State};
+handle_cast({write, Data, N}, #state{file = File, chunk_number = I} = State) ->
+
+    lager:debug("-------I ~p N ~p", [I, N]),
+
+    ok = file:write(File, Data),
+    {stop, normal, State};
 handle_cast(_Request, State) ->
     {noreply, State}.
 
