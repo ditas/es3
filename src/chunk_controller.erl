@@ -17,7 +17,10 @@
     initialize/2,
     initialize_local/2,
     write/2,
-    write_local/3
+    write_local/3,
+
+    metadata/1,
+    metadata_local/1
 ]).
 
 %% gen_server callbacks
@@ -61,6 +64,12 @@ write(FileName, Data) ->
 
 write_local(FileName, Data, CurrentChunksCounter) ->
     gen_server:call(?SERVER, {write_local, FileName, Data, CurrentChunksCounter}, infinity).
+
+metadata(FileName) ->
+    gen_server:call(?SERVER, {metadata, FileName}, infinity).
+
+metadata_local(FileName) ->
+    gen_server:call(?SERVER, {metadata_local, FileName}, infinity).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -136,6 +145,25 @@ handle_call({write_local, FileName, Data, CC}, _From, #state{chunks_handlers = C
     CurrentChunksHandlers = maps:get(FileName, CH, []),
     CurrentChunksHandlers1 = do_write(CurrentChunksHandlers, Data, CC),
     {reply, saved, State#state{chunks_handlers = maps:put(FileName, CurrentChunksHandlers1, CH)}};
+
+handle_call({metadata, FileName}, _From, #state{chunks_handlers = CH} = State) ->
+    Data = case maps:get(FileName, CH, []) of
+        [] ->
+            find_metadata(FileName);
+        List ->
+            [{node(), List}|find_metadata(FileName)]
+    end,
+
+    lager:debug("-----METADATA ~p", [Data]),
+
+    {reply, organize(Data), State};
+handle_call({metadata_local, FileName}, _From, #state{chunks_handlers = CH} = State) ->
+    Data = maps:get(FileName, CH, []),
+
+    lager:debug("-----METADATA LOCAL ~p", [Data]),
+
+    {reply, Data, State};
+
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
@@ -250,5 +278,26 @@ do_write([{I, Pid, passive}|T], Data, ChunksCounter, ActiveCH) when I =:= Chunks
 do_write([H|T], Data, ChunksCounter, ActiveCH) ->
     do_write(T, Data, ChunksCounter, [H|ActiveCH]).
 
+find_metadata(FileName) ->
+    Nodes = nodes(),
+    lists:foldl(fun(N, Acc) ->
+        case rpc:call(N, chunk_controller, metadata_local, [FileName]) of
+            {badrpc, Reason} ->
+                lager:error("metadata failed ~p ~p", [N, Reason]);
+            List ->
+                [{N, List}|Acc]
+        end
+    end, [], Nodes).
+
+organize(List) ->
+    organize(List, []).
+
+organize([], Acc) ->
+    lists:keysort(1, Acc);
+organize([{Node, Chunks}|T], Acc) ->
+    Chunks1 = lists:foldl(fun({I, _}, Acc) ->
+        [{I, Node}|Acc]
+    end, [], Chunks),
+    organize(T, Acc ++ Chunks1).
 
 

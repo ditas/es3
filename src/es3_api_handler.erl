@@ -56,7 +56,21 @@ handle_get(Req, State) ->
 
     lager:debug("----GET REQ ~p", [Req]),
 
-    {ok, Req, State}.
+    case cowboy_req:parse_qs(Req) of
+        [{<<"name">>, FileName}|_] ->
+
+            lager:debug("-----GET OK ~p", [FileName]),
+
+            MD = chunk_controller:metadata(FileName),
+
+            lager:debug("-----GET METADATA ~p", [MD]);
+        Any ->
+
+            lager:debug("-----GET ERROR ~p", [Any])
+
+    end,
+
+    #reply{code = 200, headers = #{"content-type" => "application/json"}, body = response(ok), req = Req}.
 
 handle_file(Req, Length) ->
     case cowboy_req:read_part(Req) of
