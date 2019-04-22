@@ -25,7 +25,6 @@
 }).
 
 init(Req, State) ->
-%%    handle(Req, State).
 
     lager:debug("----INIT ~p", [?MODULE]),
 
@@ -40,23 +39,6 @@ init(Req, State) ->
 
 allowed_methods(Req, State) ->
     {[<<"GET">>, <<"POST">>], Req, State}.
-
-%%handle(Req, State) ->
-%%
-%%    lager:debug("----HANDLE ~p", [?MODULE]),
-%%
-%%    case cowboy_req:method(Req) of
-%%        <<"POST">> ->
-%%
-%%            lager:debug("----POST"),
-%%
-%%            Req1 = multipart(Req),
-%%            Req2 = cowboy_req:reply(200, #{}, <<"ok">>, Req1),
-%%            {ok, Req2, State};
-%%        _ ->
-%%            Req1 = cowboy_req:reply(200, #{}, <<"error">>, Req),
-%%            {ok, Req1, State}
-%%    end.
 
 handle_post(Req) ->
 
@@ -87,8 +69,6 @@ handle_file(Req, Length) ->
                     {ok, Body, Req2} = cowboy_req:read_part_body(Req1),
                     Req2;
                 {file, Field, FileName, _} ->
-%%                    {ok, File} = file:open(FileName, [write]),
-%%                    stream_file(Req1, File)
                     chunk_controller:initialize(FileName, Length),
                     stream_file(FileName, Req1)
             end,
@@ -97,47 +77,6 @@ handle_file(Req, Length) ->
             Req1
     end.
 
-%%multipart(Req0) ->
-%%    case cowboy_req:read_part(Req0) of
-%%        {ok, Headers, Req1} ->
-%%            Req = case cow_multipart:form_data(Headers) of
-%%                      {data, FieldName} ->
-%%
-%%                          lager:debug("----DATA ~p", [FieldName]),
-%%
-%%                          {ok, Body, Req2} = cowboy_req:read_part_body(Req1),
-%%
-%%                          lager:debug("----DATA ~p", [Body]),
-%%
-%%                          Req2;
-%%                      {file, FieldName, Filename, _CType} ->
-%%
-%%                          lager:debug("----FILE ~p", [{FieldName, Filename}]),
-%%
-%%                          {ok, File} = file:open(Filename,[write]),
-%%                          stream_file(Req1, File)
-%%                  end,
-%%            multipart(Req);
-%%        {done, Req} ->
-%%            Req
-%%    end.
-
-%%stream_file(Req, File) ->
-%%    {ok, ChunkSize} = application:get_env(es3, chunk_size),
-%%    case cowboy_req:read_part_body(Req, #{length => ChunkSize}) of
-%%        {ok, LastBodyChunk, Req1} ->
-%%
-%%            lager:debug("----STREAM FILE ~p", [File]),
-%%
-%%            file:write(File, LastBodyChunk),
-%%            Req1;
-%%        {more, BodyChunk, Req1} ->
-%%
-%%            lager:debug("----MORE STREAM FILE ~p", [File]),
-%%
-%%            file:write(File, BodyChunk),
-%%            stream_file(Req1, File)
-%%    end.
 stream_file(FileName, Req) ->
     {ok, ChunkSize} = application:get_env(es3, chunk_size),
     case cowboy_req:read_part_body(Req, #{length => ChunkSize}) of

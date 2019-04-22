@@ -243,7 +243,10 @@ do_write(ChunksHandlers, Data, ChunksCounter) ->
 
 do_write([{I, Pid, passive}|T], Data, ChunksCounter, ActiveCH) when I =:= ChunksCounter ->
     ok = chunk_handler:write(Pid, Data, ChunksCounter),
-    [{I, Pid, active}|ActiveCH] ++ T;
+%%    [{I, Pid, active}|ActiveCH] ++ T;
+
+    chunk_handler:stop(Pid, normal),
+    [{I, active}|ActiveCH] ++ T;
 do_write([H|T], Data, ChunksCounter, ActiveCH) ->
     do_write(T, Data, ChunksCounter, [H|ActiveCH]).
 

@@ -14,7 +14,8 @@
 %% API
 -export([
     start_link/2,
-    write/3
+    write/3,
+    stop/2
 ]).
 
 %% gen_server callbacks
@@ -38,6 +39,10 @@
 %%%===================================================================
 write(Pid, Data, N) ->
     gen_server:call(Pid, {write, Data, N}, infinity).
+%%    gen_server:cast(Pid, {write, Data, N}).
+
+stop(Pid, Reason) ->
+    gen_server:stop(Pid, Reason, 1000).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -103,6 +108,12 @@ handle_call(_Request, _From, State) ->
     {noreply, NewState :: #state{}} |
     {noreply, NewState :: #state{}, timeout() | hibernate} |
     {stop, Reason :: term(), NewState :: #state{}}).
+%%handle_cast({write, Data, N}, #state{file = File, chunk_number = I} = State) ->
+%%
+%%    lager:debug("-------I ~p N ~p", [I, N]),
+%%
+%%    ok = file:write(File, Data),
+%%    {noreply, State};
 handle_cast(_Request, State) ->
     {noreply, State}.
 
@@ -137,6 +148,9 @@ handle_info(_Info, State) ->
 -spec(terminate(Reason :: (normal | shutdown | {shutdown, term()} | term()),
     State :: #state{}) -> term()).
 terminate(_Reason, _State) ->
+
+    lager:debug("----- ~p stopped", [{?MODULE, self()}]),
+
     ok.
 
 %%--------------------------------------------------------------------
