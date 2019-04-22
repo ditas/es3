@@ -9,12 +9,14 @@
 -module(es3_api_handler).
 -author("d.pravosudov").
 
+-include_lib("kernel/include/file.hrl").
+
 %% API
 -export([
     init/2,
     allowed_methods/2,
     handle_post/1,
-    handle_get/2
+    handle_get/1
 ]).
 
 -record(reply, {
@@ -28,13 +30,13 @@ init(Req, State) ->
 
     lager:debug("----INIT ~p", [?MODULE]),
 
-    Reply =  case cowboy_req:method(Req) of
+    Req1 = case cowboy_req:method(Req) of
         <<"POST">> ->
-            handle_post(Req);
+            Reply = handle_post(Req),
+            cowboy_req:reply(Reply#reply.code, Reply#reply.headers, Reply#reply.body, Reply#reply.req);
         _ ->
-            handle_get(Req, State)
+            handle_get(Req)
     end,
-    Req1 = cowboy_req:reply(Reply#reply.code, Reply#reply.headers, Reply#reply.body, Reply#reply.req),
     {ok, Req1, State}.
 
 allowed_methods(Req, State) ->
@@ -52,25 +54,36 @@ handle_post(Req) ->
             #reply{code = 200, headers = #{"content-type" => "application/json"}, body = response({error, "wrong data"}), req = Req}
     end.
 
-handle_get(Req, State) ->
+handle_get(Req) ->
 
     lager:debug("----GET REQ ~p", [Req]),
 
     case cowboy_req:parse_qs(Req) of
         [{<<"name">>, FileName}|_] ->
-
-            lager:debug("-----GET OK ~p", [FileName]),
-
-            MD = chunk_controller:metadata(FileName),
-
-            lager:debug("-----GET METADATA ~p", [MD]);
+            MetaData = chunk_controller:metadata(FileName),
+            send_file(MetaData, FileName, Req);
         Any ->
 
-            lager:debug("-----GET ERROR ~p", [Any])
+            lager:debug("-----GET ERROR ~p", [Any]),
 
-    end,
+            Reply = #reply{code = 200, headers = #{"content-type" => "application/json"}, body = response({error, "wrong request"}), req = Req},
+            cowboy_req:reply(Reply#reply.code, Reply#reply.headers, Reply#reply.body, Reply#reply.req)
+    end.
 
-    #reply{code = 200, headers = #{"content-type" => "application/json"}, body = response(ok), req = Req}.
+send_file(MetaData, FileName, Req) ->
+    Req1 = cowboy_req:stream_reply(200, #{"content-disposition" => "filename=" ++ binary_to_list(FileName)}, Req),
+    send_chunks(MetaData, FileName, Req1),
+    Req1.
+
+send_chunks([{I, Node}], FileName, Req) ->
+    ChunkFileName = binary_to_list(FileName) ++ "_" ++ integer_to_list(I),
+    ChunkData = chunk_controller:read(ChunkFileName, Node),
+    cowboy_req:stream_body(ChunkData, fin, Req);
+send_chunks([{I, Node}|T], FileName, Req) ->
+    ChunkFileName = binary_to_list(FileName) ++ "_" ++ integer_to_list(I),
+    ChunkData = chunk_controller:read(ChunkFileName, Node),
+    cowboy_req:stream_body(ChunkData, nofin, Req),
+    send_chunks(T, FileName, Req).
 
 handle_file(Req, Length) ->
     case cowboy_req:read_part(Req) of

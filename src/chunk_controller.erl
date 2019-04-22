@@ -11,6 +11,8 @@
 
 -behaviour(gen_server).
 
+-include_lib("kernel/include/file.hrl").
+
 %% API
 -export([
     start_link/0,
@@ -20,7 +22,9 @@
     write_local/3,
 
     metadata/1,
-    metadata_local/1
+    metadata_local/1,
+
+    read/2
 ]).
 
 %% gen_server callbacks
@@ -70,6 +74,9 @@ metadata(FileName) ->
 
 metadata_local(FileName) ->
     gen_server:call(?SERVER, {metadata_local, FileName}, infinity).
+
+read(ChunkFileName, Node) ->
+    gen_server:call(?SERVER, {read, ChunkFileName, Node}, infinity).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -145,7 +152,6 @@ handle_call({write_local, FileName, Data, CC}, _From, #state{chunks_handlers = C
     CurrentChunksHandlers = maps:get(FileName, CH, []),
     CurrentChunksHandlers1 = do_write(CurrentChunksHandlers, Data, CC),
     {reply, saved, State#state{chunks_handlers = maps:put(FileName, CurrentChunksHandlers1, CH)}};
-
 handle_call({metadata, FileName}, _From, #state{chunks_handlers = CH} = State) ->
     Data = case maps:get(FileName, CH, []) of
         [] ->
@@ -163,7 +169,19 @@ handle_call({metadata_local, FileName}, _From, #state{chunks_handlers = CH} = St
     lager:debug("-----METADATA LOCAL ~p", [Data]),
 
     {reply, Data, State};
-
+handle_call({read, ChunkFileName, Node}, _From, State) when Node == node() ->
+    {ok, File} = file:open(ChunkFileName, [binary]),
+    {ok, FileInfo} = file:read_file_info(ChunkFileName),
+    {ok, Data} = file:read(File, FileInfo#file_info.size),
+    {reply, Data, State};
+handle_call({read, ChunkFileName, Node}, _From, State) ->
+    Data = case rpc:call(Node, chunk_controller, read_local, [ChunkFileName]) of
+        {badrpc, Reason} ->
+            lager:error("file read failed ~p ~p", [Node, Reason]);
+        Bin ->
+            Bin
+    end,
+    {reply, Data, State};
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
@@ -300,4 +318,37 @@ organize([{Node, Chunks}|T], Acc) ->
     end, [], Chunks),
     organize(T, Acc ++ Chunks1).
 
+%%read(FileName, Chunks) ->
+%%    lists:foldl(fun({I, Node}, Acc) ->
+%%        case Node == node() of
+%%            true ->
+%%                {ok, Pid} = chunk_handler:start_link(FileName, I),
+%%                chunk_handler:read(Pid, FileName, I);
+%%            false ->
+%%                case rpc:call(Node, chunk_controller, read_local, [FileName, I]) of
+%%                    {badrpc, Reason} ->
+%%                        lager:error("read failed on node ~p ~p", [Node, Reason]);
+%%                    Data ->
+%%                        lager:debug("read succeed on node ~p", [Node])
+%%                end
+%%        end
+%%    end, [], Chunks).
+
+%%read(FileName, []) ->
+%%    ok;
+%%read(FileName, [{I, Node}|T]) ->
+%%    case Node == node() of
+%%        true ->
+%%            {ok, Pid} = chunk_handler:start_link(FileName, I),
+%%            chunk_handler:read(Pid, FileName, I);
+%%        false ->
+%%            case rpc:call(Node, chunk_controller, read_local, [FileName, I]) of
+%%                {badrpc, Reason} ->
+%%                    lager:error("read failed on node ~p ~p", [Node, Reason]);
+%%                Data ->
+%%                    lager:debug("read succeed on node ~p", [Node]),
+%%                    Data
+%%            end
+%%    end,
+%%    read(FileName, T).
 
