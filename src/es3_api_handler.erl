@@ -61,6 +61,7 @@ handle_get(Req) ->
     case cowboy_req:parse_qs(Req) of
         [{<<"name">>, FileName}|_] ->
             MetaData = chunk_controller:metadata(FileName),
+            initialized = chunk_controller:initialize_readers(FileName, MetaData),
             send_file(MetaData, FileName, Req);
         Any ->
 
@@ -76,12 +77,10 @@ send_file(MetaData, FileName, Req) ->
     Req1.
 
 send_chunks([{I, Node}], FileName, Req) ->
-    ChunkFileName = binary_to_list(FileName) ++ "_" ++ integer_to_list(I),
-    ChunkData = chunk_controller:read(ChunkFileName, Node),
+    ChunkData = chunk_controller:read(FileName, I, Node),
     cowboy_req:stream_body(ChunkData, fin, Req);
 send_chunks([{I, Node}|T], FileName, Req) ->
-    ChunkFileName = binary_to_list(FileName) ++ "_" ++ integer_to_list(I),
-    ChunkData = chunk_controller:read(ChunkFileName, Node),
+    ChunkData = chunk_controller:read(FileName, I, Node),
     cowboy_req:stream_body(ChunkData, nofin, Req),
     send_chunks(T, FileName, Req).
 
@@ -96,7 +95,7 @@ handle_file(Req, Length) ->
                     {ok, Body, Req2} = cowboy_req:read_part_body(Req1),
                     Req2;
                 {file, Field, FileName, _} ->
-                    chunk_controller:initialize(FileName, Length),
+                    chunk_controller:initialize_writers(FileName, Length),
                     stream_file(FileName, Req1)
             end,
             handle_file(ReqFin, Length);

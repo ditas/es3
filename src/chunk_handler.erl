@@ -11,10 +11,13 @@
 
 -behaviour(gen_server).
 
+-include_lib("kernel/include/file.hrl").
+
 %% API
 -export([
     start_link/2,
     write/3,
+    read/1,
     stop/2
 ]).
 
@@ -31,6 +34,7 @@
 -record(state, {
     filename,
     chunk_number,
+    chunkfilename,
     file
 }).
 
@@ -38,8 +42,10 @@
 %%% API
 %%%===================================================================
 write(Pid, Data, N) ->
-%%    gen_server:call(Pid, {write, Data, N}, infinity).
     gen_server:cast(Pid, {write, Data, N}).
+
+read(Pid) ->
+    gen_server:call(Pid, read).
 
 stop(Pid, Reason) ->
     gen_server:stop(Pid, Reason, 1000).
@@ -68,9 +74,14 @@ start_link(FileName, I) ->
 %%                     {stop, Reason}
 %% @end
 %%--------------------------------------------------------------------
-init([FileName, I]) ->
-    {ok, File} = file:open(binary_to_list(FileName) ++ "_" ++ integer_to_list(I), [write]),
-    {ok, #state{filename = FileName, chunk_number = I, file = File}}.
+init([BinFileName, I]) ->
+
+    lager:debug("-----INIT CHUNK HANDLER ~p", [{BinFileName, I}]),
+
+    FileName = binary_to_list(BinFileName),
+    ChunkFileName = FileName ++ "_" ++ integer_to_list(I),
+    {ok, File} = file:open(ChunkFileName, [binary, read, write]),
+    {ok, #state{filename = FileName, chunk_number = I, chunkfilename = ChunkFileName, file = File}}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -87,12 +98,10 @@ init([FileName, I]) ->
     {noreply, NewState :: #state{}, timeout() | hibernate} |
     {stop, Reason :: term(), Reply :: term(), NewState :: #state{}} |
     {stop, Reason :: term(), NewState :: #state{}}).
-%%handle_call({write, Data, N}, _From, #state{file = File, chunk_number = I} = State) ->
-%%
-%%    lager:debug("-------I ~p N ~p", [I, N]),
-%%
-%%    ok = file:write(File, Data),
-%%    {reply, ok, State};
+handle_call(read, _From, #state{file = File, chunkfilename = ChunkFileName} = State) ->
+    {ok, FileInfo} = file:read_file_info(ChunkFileName),
+    {ok, Data} = file:read(File, FileInfo#file_info.size),
+    {reply, Data, State};
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
@@ -108,9 +117,6 @@ handle_call(_Request, _From, State) ->
     {noreply, NewState :: #state{}, timeout() | hibernate} |
     {stop, Reason :: term(), NewState :: #state{}}).
 handle_cast({write, Data, N}, #state{file = File, chunk_number = I} = State) ->
-
-    lager:debug("-------I ~p N ~p", [I, N]),
-
     ok = file:write(File, Data),
     {stop, normal, State};
 handle_cast(_Request, State) ->

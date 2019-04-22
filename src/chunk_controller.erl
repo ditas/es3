@@ -16,15 +16,16 @@
 %% API
 -export([
     start_link/0,
-    initialize/2,
-    initialize_local/2,
+    initialize_writers/2,
+    initialize_writers_local/2,
     write/2,
     write_local/3,
-
     metadata/1,
     metadata_local/1,
-
-    read/2
+    initialize_readers/2,
+    initialize_readers_local/2,
+    read/3,
+    read_local/2
 ]).
 
 %% gen_server callbacks
@@ -39,7 +40,8 @@
 
 -record(state, {
     chunks_handlers = #{},
-    chunks_counters = #{}
+    chunks_counters = #{},
+    chunks_readers = #{}
 }).
 
 %%%===================================================================
@@ -57,11 +59,11 @@
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
-initialize(FileName, Length) ->
-    gen_server:call(?SERVER, {initialize, FileName, Length}, infinity).
+initialize_writers(FileName, Length) ->
+    gen_server:call(?SERVER, {initialize_writers, FileName, Length}, infinity).
 
-initialize_local(FileName, I) ->
-    gen_server:call(?SERVER, {initialize_local, FileName, I}, infinity).
+initialize_writers_local(FileName, I) ->
+    gen_server:call(?SERVER, {initialize_writers_local, FileName, I}, infinity).
 
 write(FileName, Data) ->
     gen_server:call(?SERVER, {write, FileName, Data}, infinity).
@@ -75,8 +77,17 @@ metadata(FileName) ->
 metadata_local(FileName) ->
     gen_server:call(?SERVER, {metadata_local, FileName}, infinity).
 
-read(ChunkFileName, Node) ->
-    gen_server:call(?SERVER, {read, ChunkFileName, Node}, infinity).
+initialize_readers(FileName, MetaData) ->
+    gen_server:call(?SERVER, {initialize_readers, FileName, MetaData}, infinity).
+
+initialize_readers_local(FileName, I) ->
+    gen_server:call(?SERVER, {initialize_readers_local, FileName, I}, infinity).
+
+read(FileName, I, Node) ->
+    gen_server:call(?SERVER, {read, FileName, I, Node}, infinity).
+
+read_local(FileName, I) ->
+    gen_server:call(?SERVER, {read_local, FileName, I}, infinity).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -115,7 +126,7 @@ init([]) ->
     {noreply, NewState :: #state{}, timeout() | hibernate} |
     {stop, Reason :: term(), Reply :: term(), NewState :: #state{}} |
     {stop, Reason :: term(), NewState :: #state{}}).
-handle_call({initialize, FileName, Length}, _From, State) ->
+handle_call({initialize_writers, FileName, Length}, _From, State) ->
     {ok, ChunkSize} = application:get_env(es3, chunk_size),
     ChunksCount = ceil(Length/ChunkSize),
 
@@ -124,7 +135,7 @@ handle_call({initialize, FileName, Length}, _From, State) ->
     State1 = prepare(FileName, ChunksCount, State),
 
     {reply, initialized, State1};
-handle_call({initialize_local, FileName, I}, _From, #state{chunks_handlers = CH} = State) ->
+handle_call({initialize_writers_local, FileName, I}, _From, #state{chunks_handlers = CH} = State) ->
     CurrentChunksHandlers = maps:get(FileName, CH, []),
     {ok, Pid} = chunk_handler:start_link(FileName, I),
     {reply, initialized, State#state{chunks_handlers = maps:put(FileName, [{I, Pid, passive}|CurrentChunksHandlers], CH)}};
@@ -169,18 +180,51 @@ handle_call({metadata_local, FileName}, _From, #state{chunks_handlers = CH} = St
     lager:debug("-----METADATA LOCAL ~p", [Data]),
 
     {reply, Data, State};
-handle_call({read, ChunkFileName, Node}, _From, State) when Node == node() ->
-    {ok, File} = file:open(ChunkFileName, [binary]),
-    {ok, FileInfo} = file:read_file_info(ChunkFileName),
-    {ok, Data} = file:read(File, FileInfo#file_info.size),
+handle_call({initialize_readers, FileName, MetaData}, _From, #state{chunks_readers = CR} = State) ->
+    CurrentChunksReaders = maps:get(FileName, CR, []),
+    CurrentChunksReaders1 = lists:foldl(fun({I, Node}, Acc) ->
+        case Node == node() of
+            true ->
+                {ok, Pid} = chunk_handler:start_link(FileName, I),
+                [{I, Pid}|Acc];
+            false ->
+                case rpc:call(Node, chunk_controller, initialize_readers_local, [FileName, I]) of
+                   {badrpc, Reason} ->
+                       lager:error("reader initialization failed ~p ~p", [Node, Reason]);
+                   initialized ->
+                       lager:debug("chunk handlers started on node ~p ~p", [Node, initialized])
+                end,
+                Acc
+        end
+    end, CurrentChunksReaders, MetaData),
+
+    lager:debug("-----INITIALIZE READERS ~p", [{State#state{chunks_readers = maps:put(FileName, CurrentChunksReaders1, CR)}, CurrentChunksReaders1}]),
+
+    {reply, initialized, State#state{chunks_readers = maps:put(FileName, CurrentChunksReaders1, CR)}};
+handle_call({initialize_readers_local, FileName, I}, _From, #state{chunks_readers = CR} = State) ->
+    CurrentChunksReaders = maps:get(FileName, CR, []),
+    {ok, Pid} = chunk_handler:start_link(FileName, I),
+    {reply, initialized, State#state{chunks_readers = maps:put(FileName, [{I, Pid}|CurrentChunksReaders], CR)}};
+handle_call({read, FileName, I, Node}, _From, #state{chunks_readers = CR} = State) when Node == node() ->
+    CurrentChunksReaders = maps:get(FileName, CR),
+
+    lager:debug("-----READERS ~p", [{CurrentChunksReaders, I}]),
+
+    {I, Pid} = lists:keyfind(I, 1, CurrentChunksReaders),
+    Data = chunk_handler:read(Pid),
     {reply, Data, State};
-handle_call({read, ChunkFileName, Node}, _From, State) ->
-    Data = case rpc:call(Node, chunk_controller, read_local, [ChunkFileName]) of
+handle_call({read, FileName, I, Node}, _From, State) ->
+    Data = case rpc:call(Node, chunk_controller, read_local, [FileName, I]) of
         {badrpc, Reason} ->
             lager:error("file read failed ~p ~p", [Node, Reason]);
         Bin ->
             Bin
     end,
+    {reply, Data, State};
+handle_call({read_local, FileName, I}, _From, #state{chunks_readers = CR} = State) ->
+    CurrentChunksReaders = maps:get(FileName, CR),
+    {I, Pid} = lists:keyfind(I, 1, CurrentChunksReaders),
+    Data = chunk_handler:read(Pid),
     {reply, Data, State};
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
@@ -270,7 +314,7 @@ prepare(FileName, ChunksCount, State) ->
                 io:format("---PREPARE REMOTE--- ~p~n", [I]),
 
                 Node = lists:nth(Rem, Nodes),
-                case rpc:call(Node, chunk_controller, initialize_local, [FileName, I]) of
+                case rpc:call(Node, chunk_controller, initialize_writers_local, [FileName, I]) of
                     {badrpc, Reason} ->
                         lager:error("node start failed ~p ~p", [Node, Reason]);
                     initialized -> %% initialized
@@ -289,9 +333,6 @@ do_write(ChunksHandlers, Data, ChunksCounter) ->
 
 do_write([{I, Pid, passive}|T], Data, ChunksCounter, ActiveCH) when I =:= ChunksCounter ->
     ok = chunk_handler:write(Pid, Data, ChunksCounter),
-%%    [{I, Pid, active}|ActiveCH] ++ T;
-
-%%    chunk_handler:stop(Pid, normal), %% if chunk_handler:write/3 is sync call
     [{I, active}|ActiveCH] ++ T;
 do_write([H|T], Data, ChunksCounter, ActiveCH) ->
     do_write(T, Data, ChunksCounter, [H|ActiveCH]).
