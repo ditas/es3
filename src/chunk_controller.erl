@@ -17,7 +17,7 @@
 -export([
     start_link/0,
     initialize_writers/2,
-    initialize_writers_local/2,
+    initialize_writers_local/3,
     write/2,
     write_local/3,
     metadata/1,
@@ -27,7 +27,8 @@
     read/3,
     read_local/2,
     delete/2,
-    delete_local/2
+    delete_local/2,
+    remove_handler/3
 ]).
 
 %% gen_server callbacks
@@ -43,7 +44,8 @@
 -record(state, {
     chunks_handlers = #{},
     chunks_counters = #{},
-    chunks_readers = #{}
+    chunks_readers = #{},
+    metadata = #{}
 }).
 
 %%%===================================================================
@@ -64,8 +66,8 @@ start_link() ->
 initialize_writers(FileName, Length) ->
     gen_server:call(?SERVER, {initialize_writers, FileName, Length}, infinity).
 
-initialize_writers_local(FileName, I) ->
-    gen_server:call(?SERVER, {initialize_writers_local, FileName, I}, infinity).
+initialize_writers_local(FileName, I, Type) ->
+    gen_server:call(?SERVER, {initialize_writers_local, FileName, I, Type}, infinity).
 
 write(FileName, Data) ->
     gen_server:call(?SERVER, {write, FileName, Data}, infinity).
@@ -96,6 +98,9 @@ delete(FileName, MetaData) ->
 
 delete_local(FileName, I) ->
     gen_server:call(?SERVER, {delete_local, FileName, I}, infinity).
+
+remove_handler(Type, FileName, Pid) ->
+    gen_server:cast(?SERVER, {Type, FileName, Pid}).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -143,9 +148,9 @@ handle_call({initialize_writers, FileName, Length}, _From, State) ->
     State1 = prepare(FileName, ChunksCount, State),
 
     {reply, initialized, State1};
-handle_call({initialize_writers_local, FileName, I}, _From, #state{chunks_handlers = CH} = State) ->
+handle_call({initialize_writers_local, FileName, I, Type}, _From, #state{chunks_handlers = CH} = State) ->
     CurrentChunksHandlers = maps:get(FileName, CH, []),
-    {ok, Pid} = chunk_handler:start_link(FileName, I),
+    {ok, Pid} = chunk_handler:start_link(FileName, I, Type),
     {reply, initialized, State#state{chunks_handlers = maps:put(FileName, [{I, Pid, passive}|CurrentChunksHandlers], CH)}};
 handle_call({write, FileName, Data}, _From, #state{chunks_handlers = CH, chunks_counters = CC} = State) ->
     CurrentChunksHandlers = maps:get(FileName, CH, []),
@@ -166,13 +171,17 @@ handle_call({write, FileName, Data}, _From, #state{chunks_handlers = CH, chunks_
             end,
             CH
     end,
-    {reply, saved, State#state{chunks_handlers = CH1, chunks_counters = maps:put(FileName, CurrentChunksCounter + 1, CC)}};
+    State1 = State#state{chunks_handlers = CH1, chunks_counters = maps:put(FileName, CurrentChunksCounter + 1, CC)},
+
+    io:format("---WRITE--- ~p~n", [State1]),
+
+    {reply, saved, State1};
 handle_call({write_local, FileName, Data, CC}, _From, #state{chunks_handlers = CH} = State) ->
     CurrentChunksHandlers = maps:get(FileName, CH, []),
     CurrentChunksHandlers1 = do_write(CurrentChunksHandlers, Data, CC),
     {reply, saved, State#state{chunks_handlers = maps:put(FileName, CurrentChunksHandlers1, CH)}};
-handle_call({metadata, FileName}, _From, #state{chunks_handlers = CH} = State) ->
-    Data = case maps:get(FileName, CH, []) of
+handle_call({metadata, FileName}, _From, #state{metadata = MD} = State) ->
+    Data = case maps:get(FileName, MD, []) of
         [] ->
             find_metadata(FileName);
         List ->
@@ -182,8 +191,8 @@ handle_call({metadata, FileName}, _From, #state{chunks_handlers = CH} = State) -
     lager:debug("-----METADATA ~p", [Data]),
 
     {reply, organize(Data), State};
-handle_call({metadata_local, FileName}, _From, #state{chunks_handlers = CH} = State) ->
-    Data = maps:get(FileName, CH, []),
+handle_call({metadata_local, FileName}, _From, #state{metadata = MD} = State) ->
+    Data = maps:get(FileName, MD, []),
 
     lager:debug("-----METADATA LOCAL ~p", [Data]),
 
@@ -193,7 +202,7 @@ handle_call({initialize_readers, FileName, MetaData}, _From, #state{chunks_reade
     CurrentChunksReaders1 = lists:foldl(fun({I, Node}, Acc) ->
         case Node == node() of
             true ->
-                {ok, Pid} = chunk_handler:start_link(FileName, I),
+                {ok, Pid} = chunk_handler:start_link(FileName, I, reader),
                 [{I, Pid}|Acc];
             false ->
                 case rpc:call(Node, chunk_controller, initialize_readers_local, [FileName, I]) of
@@ -211,7 +220,7 @@ handle_call({initialize_readers, FileName, MetaData}, _From, #state{chunks_reade
     {reply, initialized, State#state{chunks_readers = maps:put(FileName, CurrentChunksReaders1, CR)}};
 handle_call({initialize_readers_local, FileName, I}, _From, #state{chunks_readers = CR} = State) ->
     CurrentChunksReaders = maps:get(FileName, CR, []),
-    {ok, Pid} = chunk_handler:start_link(FileName, I),
+    {ok, Pid} = chunk_handler:start_link(FileName, I, reader),
     {reply, initialized, State#state{chunks_readers = maps:put(FileName, [{I, Pid}|CurrentChunksReaders], CR)}};
 handle_call({read, FileName, I, Node}, _From, #state{chunks_readers = CR} = State) when Node == node() ->
     CurrentChunksReaders = maps:get(FileName, CR),
@@ -220,6 +229,7 @@ handle_call({read, FileName, I, Node}, _From, #state{chunks_readers = CR} = Stat
 
     {I, Pid} = lists:keyfind(I, 1, CurrentChunksReaders),
     Data = chunk_handler:read(Pid),
+    ok = chunk_handler:stop(Pid, normal),
     {reply, Data, State};
 handle_call({read, FileName, I, Node}, _From, State) ->
     Data = case rpc:call(Node, chunk_controller, read_local, [FileName, I]) of
@@ -233,6 +243,7 @@ handle_call({read_local, FileName, I}, _From, #state{chunks_readers = CR} = Stat
     CurrentChunksReaders = maps:get(FileName, CR),
     {I, Pid} = lists:keyfind(I, 1, CurrentChunksReaders),
     Data = chunk_handler:read(Pid),
+    ok = chunk_handler:stop(Pid, normal),
     {reply, Data, State};
 handle_call({delete, FileName, MetaData}, _From, #state{chunks_readers = CR} = State) ->
     CurrentChunksReaders = maps:get(FileName, CR),
@@ -257,6 +268,61 @@ handle_call(_Request, _From, State) ->
     {noreply, NewState :: #state{}} |
     {noreply, NewState :: #state{}, timeout() | hibernate} |
     {stop, Reason :: term(), NewState :: #state{}}).
+handle_cast({writer, FileName, Pid}, #state{chunks_handlers = CW, chunks_counters = CC, metadata = MD} = State) ->
+    CurrentMD = maps:get(FileName, MD, []),
+    State1 = case maps:get(FileName, CW, []) of
+        [] ->
+            State#state{chunks_handlers = maps:remove(FileName, CW), chunks_counters = maps:remove(FileName, CC)};
+        Writers ->
+            case lists:keytake(Pid, 2, Writers) of
+                {value, {I, Pid, _Status}, Writers1} when Writers1 =/= [] ->
+                    State#state{chunks_handlers = maps:put(FileName, Writers1, CW), metadata = maps:put(FileName, [I|CurrentMD], MD)};
+                {value, {I, Pid, _Status}, Writers1} ->
+                    State#state{chunks_handlers = maps:remove(FileName, CW), chunks_counters = maps:remove(FileName, CC), metadata = maps:put(FileName, [I|CurrentMD], MD)};
+                false ->
+                    State
+            end
+    end,
+
+    io:format("---REMOVE WRITER--- ~p~n", [State1]),
+
+    {noreply, State1};
+handle_cast({reader, FileName, Pid}, #state{chunks_readers = CR} = State) ->
+    State1 = case maps:get(FileName, CR, []) of
+                 [] ->
+                     State#state{chunks_readers = maps:remove(FileName, CR)};
+                 Readers ->
+                     case lists:keytake(Pid, 2, Readers) of
+                         {value, {_I, Pid}, Readers1} when Readers1 =/= [] ->
+                             State#state{chunks_readers = maps:put(FileName, Readers1, CR)};
+                         {value, {_I, Pid}, Readers1} ->
+                             State#state{chunks_readers = maps:remove(FileName, CR)};
+                         false ->
+                             State
+                     end
+             end,
+
+    io:format("---REMOVE READER--- ~p~n", [State1]),
+
+    {noreply, State1};
+handle_cast({eraser, FileName, Pid}, #state{chunks_readers = CR, metadata = MD} = State) ->
+    State1 = case maps:get(FileName, CR, []) of
+                 [] ->
+                     State#state{chunks_readers = maps:remove(FileName, CR), metadata = maps:remove(FileName, MD)};
+                 Readers ->
+                     case lists:keytake(Pid, 2, Readers) of
+                         {value, {_I, Pid}, Readers1} when Readers1 =/= [] ->
+                             State#state{chunks_readers = maps:put(FileName, Readers1, CR)};
+                         {value, {_I, Pid}, Readers1} ->
+                             State#state{chunks_readers = maps:remove(FileName, CR), metadata = maps:remove(FileName, MD)};
+                         false ->
+                             State
+                     end
+             end,
+
+    io:format("---REMOVE READER--- ~p~n", [State1]),
+
+    {noreply, State1};
 handle_cast(_Request, State) ->
     {noreply, State}.
 
@@ -323,7 +389,7 @@ prepare(FileName, ChunksCount, State) ->
                 io:format("---PREPARE LOCAL--- ~p~n", [I]),
 
                 CurrentChunkHandlers = maps:get(FileName, CH, []),
-                {ok, Pid} = chunk_handler:start_link(FileName, I),
+                {ok, Pid} = chunk_handler:start_link(FileName, I, writer),
                 S1 = S#state{chunks_handlers = maps:put(FileName, [{I, Pid, passive}|CurrentChunkHandlers], CH), chunks_counters = maps:put(FileName, 1, CC)},
                 S1;
             Rem ->
@@ -331,11 +397,12 @@ prepare(FileName, ChunksCount, State) ->
                 io:format("---PREPARE REMOTE--- ~p~n", [I]),
 
                 Node = lists:nth(Rem, Nodes),
-                case rpc:call(Node, chunk_controller, initialize_writers_local, [FileName, I]) of
+
+                case rpc:call(Node, chunk_controller, initialize_writers_local, [FileName, I, writer]) of
                     {badrpc, Reason} ->
                         lager:error("node start failed ~p ~p", [Node, Reason]);
-                    initialized -> %% initialized
-                        lager:debug("chunk handlers started on node ~p ~p", [Node, initialized])
+                    Res -> %% initialized??????????
+                        lager:debug("chunk handlers started on node ~p ~p", [Node, Res])
                 end,
                 S
         end
@@ -350,7 +417,7 @@ do_write(ChunksHandlers, Data, ChunksCounter) ->
 
 do_write([{I, Pid, passive}|T], Data, ChunksCounter, ActiveCH) when I =:= ChunksCounter ->
     ok = chunk_handler:write(Pid, Data, ChunksCounter),
-    [{I, active}|ActiveCH] ++ T;
+    [{I, Pid, active}|ActiveCH] ++ T;
 do_write([H|T], Data, ChunksCounter, ActiveCH) ->
     do_write(T, Data, ChunksCounter, [H|ActiveCH]).
 
@@ -371,7 +438,7 @@ organize(List) ->
 organize([], Acc) ->
     lists:keysort(1, Acc);
 organize([{Node, Chunks}|T], Acc) ->
-    Chunks1 = lists:foldl(fun({I, _}, Acc) ->
+    Chunks1 = lists:foldl(fun(I, Acc) ->
         [{I, Node}|Acc]
     end, [], Chunks),
     organize(T, Acc ++ Chunks1).

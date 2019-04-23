@@ -15,7 +15,7 @@
 
 %% API
 -export([
-    start_link/2,
+    start_link/3,
     write/3,
     read/1,
     delete/1,
@@ -36,7 +36,8 @@
     filename,
     chunk_number,
     chunkfilename,
-    file
+    file,
+    type
 }).
 
 %%%===================================================================
@@ -60,8 +61,8 @@ stop(Pid, Reason) ->
 %%
 %% @end
 %%--------------------------------------------------------------------
-start_link(FileName, I) ->
-    gen_server:start_link(?MODULE, [FileName, I], []).
+start_link(FileName, I, Type) ->
+    gen_server:start_link(?MODULE, [FileName, I, Type], []).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -78,14 +79,14 @@ start_link(FileName, I) ->
 %%                     {stop, Reason}
 %% @end
 %%--------------------------------------------------------------------
-init([BinFileName, I]) ->
+init([BinFileName, I, Type]) ->
 
     lager:debug("-----INIT CHUNK HANDLER ~p", [{BinFileName, I}]),
 
     FileName = binary_to_list(BinFileName),
     ChunkFileName = FileName ++ "_" ++ integer_to_list(I),
     {ok, File} = file:open(ChunkFileName, [binary, read, write]),
-    {ok, #state{filename = FileName, chunk_number = I, chunkfilename = ChunkFileName, file = File}}.
+    {ok, #state{filename = FileName, chunk_number = I, chunkfilename = ChunkFileName, file = File, type = Type}}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -125,7 +126,7 @@ handle_cast({write, Data, N}, #state{file = File, chunk_number = I} = State) ->
     {stop, normal, State};
 handle_cast(delete, #state{chunkfilename = ChunkFileName} = State) ->
     ok = file:delete(ChunkFileName),
-    {stop, normal, State};
+    {stop, normal, State#state{type = eraser}};
 handle_cast(_Request, State) ->
     {noreply, State}.
 
@@ -159,10 +160,11 @@ handle_info(_Info, State) ->
 %%--------------------------------------------------------------------
 -spec(terminate(Reason :: (normal | shutdown | {shutdown, term()} | term()),
     State :: #state{}) -> term()).
-terminate(_Reason, _State) ->
+terminate(_Reason, #state{type = Type, filename = FileName}) ->
 
     lager:debug("----- ~p stopped", [{?MODULE, self()}]),
 
+    chunk_controller:remove_handler(Type, list_to_binary(FileName), self()),
     ok.
 
 %%--------------------------------------------------------------------

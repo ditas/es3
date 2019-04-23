@@ -70,20 +70,30 @@ handle_get(Req) ->
             cowboy_req:reply(Reply#reply.code, Reply#reply.headers, Reply#reply.body, Reply#reply.req)
     end.
 
-action(<<"read">>, {_, FileName}, Req) ->
-    MetaData = chunk_controller:metadata(FileName),
+action(Type, {_, FileName}, Req) ->
+    case chunk_controller:metadata(FileName) of
+        [] ->
+            Reply = #reply{code = 200, headers = #{"content-type" => "application/json"}, body = response({error, "file not found"}), req = Req},
+            cowboy_req:reply(Reply#reply.code, Reply#reply.headers, Reply#reply.body, Reply#reply.req);
+        MetaData ->
+            action(Type, FileName, MetaData, Req)
+    end.
+
+action(<<"read">>, FileName, MetaData, Req) ->
     initialized = chunk_controller:initialize_readers(FileName, MetaData),
     send_file(MetaData, FileName, Req);
-action(<<"delete">>, {_, FileName}, Req) ->
-    MetaData = chunk_controller:metadata(FileName),
+action(<<"delete">>, FileName, MetaData, Req) ->
     initialized = chunk_controller:initialize_readers(FileName, MetaData),
     deleted = chunk_controller:delete(FileName, MetaData),
     Reply = #reply{code = 200, headers = #{"content-type" => "application/json"}, body = response(ok), req = Req},
     cowboy_req:reply(Reply#reply.code, Reply#reply.headers, Reply#reply.body, Reply#reply.req);
-action(_, _, Req) ->
+action(_, _, _, Req) ->
     Reply = #reply{code = 200, headers = #{"content-type" => "application/json"}, body = response({error, "wrong request"}), req = Req},
     cowboy_req:reply(Reply#reply.code, Reply#reply.headers, Reply#reply.body, Reply#reply.req).
 
+%%send_file([], _FileName, Req) ->
+%%    Reply = #reply{code = 200, headers = #{"content-type" => "application/json"}, body = response({error, "file not found"}), req = Req},
+%%    cowboy_req:reply(Reply#reply.code, Reply#reply.headers, Reply#reply.body, Reply#reply.req);
 send_file(MetaData, FileName, Req) ->
     Req1 = cowboy_req:stream_reply(200, #{"content-disposition" => "filename=" ++ binary_to_list(FileName)}, Req),
     send_chunks(MetaData, FileName, Req1),
