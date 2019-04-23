@@ -25,7 +25,9 @@
     initialize_readers/2,
     initialize_readers_local/2,
     read/3,
-    read_local/2
+    read_local/2,
+    delete/2,
+    delete_local/2
 ]).
 
 %% gen_server callbacks
@@ -88,6 +90,12 @@ read(FileName, I, Node) ->
 
 read_local(FileName, I) ->
     gen_server:call(?SERVER, {read_local, FileName, I}, infinity).
+
+delete(FileName, MetaData) ->
+    gen_server:call(?SERVER, {delete, FileName, MetaData}, infinity).
+
+delete_local(FileName, I) ->
+    gen_server:call(?SERVER, {delete_local, FileName, I}, infinity).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -226,6 +234,15 @@ handle_call({read_local, FileName, I}, _From, #state{chunks_readers = CR} = Stat
     {I, Pid} = lists:keyfind(I, 1, CurrentChunksReaders),
     Data = chunk_handler:read(Pid),
     {reply, Data, State};
+handle_call({delete, FileName, MetaData}, _From, #state{chunks_readers = CR} = State) ->
+    CurrentChunksReaders = maps:get(FileName, CR),
+    deleted = do_delete(FileName, CurrentChunksReaders, MetaData),
+    {reply, deleted, State};
+handle_call({delete_local, FileName, I}, _From, #state{chunks_readers = CR} = State) ->
+    CurrentChunksReaders = maps:get(FileName, CR),
+    {I, Pid} = lists:keyfind(I, 1, CurrentChunksReaders),
+    ok = chunk_handler:delete(Pid),
+    {reply, deleted, State};
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
@@ -359,37 +376,17 @@ organize([{Node, Chunks}|T], Acc) ->
     end, [], Chunks),
     organize(T, Acc ++ Chunks1).
 
-%%read(FileName, Chunks) ->
-%%    lists:foldl(fun({I, Node}, Acc) ->
-%%        case Node == node() of
-%%            true ->
-%%                {ok, Pid} = chunk_handler:start_link(FileName, I),
-%%                chunk_handler:read(Pid, FileName, I);
-%%            false ->
-%%                case rpc:call(Node, chunk_controller, read_local, [FileName, I]) of
-%%                    {badrpc, Reason} ->
-%%                        lager:error("read failed on node ~p ~p", [Node, Reason]);
-%%                    Data ->
-%%                        lager:debug("read succeed on node ~p", [Node])
-%%                end
-%%        end
-%%    end, [], Chunks).
-
-%%read(FileName, []) ->
-%%    ok;
-%%read(FileName, [{I, Node}|T]) ->
-%%    case Node == node() of
-%%        true ->
-%%            {ok, Pid} = chunk_handler:start_link(FileName, I),
-%%            chunk_handler:read(Pid, FileName, I);
-%%        false ->
-%%            case rpc:call(Node, chunk_controller, read_local, [FileName, I]) of
-%%                {badrpc, Reason} ->
-%%                    lager:error("read failed on node ~p ~p", [Node, Reason]);
-%%                Data ->
-%%                    lager:debug("read succeed on node ~p", [Node]),
-%%                    Data
-%%            end
-%%    end,
-%%    read(FileName, T).
+do_delete(_FileName, _CurrentChunksReaders, []) ->
+    deleted;
+do_delete(FileName, CurrentChunksReaders, [{I, Node}|T]) when Node == node() ->
+    {I, Pid} = lists:keyfind(I, 1, CurrentChunksReaders),
+    ok = chunk_handler:delete(Pid),
+    do_delete(FileName, CurrentChunksReaders, T);
+do_delete(FileName, CurrentChunksReaders, [{I, Node}|T]) ->
+    case rpc:call(Node, chunk_controller, delete_local, [FileName, I]) of
+        {badrpc, Reason} ->
+            lager:error("file deletion failed ~p ~p", [Node, Reason]);
+        deleted ->
+            do_delete(FileName, CurrentChunksReaders, T)
+    end.
 

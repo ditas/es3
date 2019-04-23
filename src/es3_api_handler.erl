@@ -58,11 +58,10 @@ handle_get(Req) ->
 
     lager:debug("----GET REQ ~p", [Req]),
 
-    case cowboy_req:parse_qs(Req) of
-        [{<<"name">>, FileName}|_] ->
-            MetaData = chunk_controller:metadata(FileName),
-            initialized = chunk_controller:initialize_readers(FileName, MetaData),
-            send_file(MetaData, FileName, Req);
+    QS = cowboy_req:parse_qs(Req),
+    case lists:keyfind(<<"action">>, 1, QS) of
+        {<<"action">>, Action} ->
+            action(Action, lists:keyfind(<<"name">>, 1, QS), Req);
         Any ->
 
             lager:debug("-----GET ERROR ~p", [Any]),
@@ -70,6 +69,20 @@ handle_get(Req) ->
             Reply = #reply{code = 200, headers = #{"content-type" => "application/json"}, body = response({error, "wrong request"}), req = Req},
             cowboy_req:reply(Reply#reply.code, Reply#reply.headers, Reply#reply.body, Reply#reply.req)
     end.
+
+action(<<"read">>, {_, FileName}, Req) ->
+    MetaData = chunk_controller:metadata(FileName),
+    initialized = chunk_controller:initialize_readers(FileName, MetaData),
+    send_file(MetaData, FileName, Req);
+action(<<"delete">>, {_, FileName}, Req) ->
+    MetaData = chunk_controller:metadata(FileName),
+    initialized = chunk_controller:initialize_readers(FileName, MetaData),
+    deleted = chunk_controller:delete(FileName, MetaData),
+    Reply = #reply{code = 200, headers = #{"content-type" => "application/json"}, body = response(ok), req = Req},
+    cowboy_req:reply(Reply#reply.code, Reply#reply.headers, Reply#reply.body, Reply#reply.req);
+action(_, _, Req) ->
+    Reply = #reply{code = 200, headers = #{"content-type" => "application/json"}, body = response({error, "wrong request"}), req = Req},
+    cowboy_req:reply(Reply#reply.code, Reply#reply.headers, Reply#reply.body, Reply#reply.req).
 
 send_file(MetaData, FileName, Req) ->
     Req1 = cowboy_req:stream_reply(200, #{"content-disposition" => "filename=" ++ binary_to_list(FileName)}, Req),

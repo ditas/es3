@@ -18,6 +18,7 @@
     start_link/2,
     write/3,
     read/1,
+    delete/1,
     stop/2
 ]).
 
@@ -46,6 +47,9 @@ write(Pid, Data, N) ->
 
 read(Pid) ->
     gen_server:call(Pid, read).
+
+delete(Pid) ->
+    gen_server:cast(Pid, delete).
 
 stop(Pid, Reason) ->
     gen_server:stop(Pid, Reason, 1000).
@@ -118,6 +122,9 @@ handle_call(_Request, _From, State) ->
     {stop, Reason :: term(), NewState :: #state{}}).
 handle_cast({write, Data, N}, #state{file = File, chunk_number = I} = State) ->
     ok = file:write(File, Data),
+    {stop, normal, State};
+handle_cast(delete, #state{chunkfilename = ChunkFileName} = State) ->
+    ok = file:delete(ChunkFileName),
     {stop, normal, State};
 handle_cast(_Request, State) ->
     {noreply, State}.
