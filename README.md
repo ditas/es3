@@ -4,7 +4,7 @@
 
 ## How to use
 
-The simpliest way to use (just to play) is `console.sh` file
+The simpliest way to use (**assuming you have erlang installed on your machine**) is `console.sh` file
 
 ```bash
 chmod +x console.sh
