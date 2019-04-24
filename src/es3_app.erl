@@ -1,11 +1,3 @@
-%%%-------------------------------------------------------------------
-%%% @author pravosudov
-%%% @copyright (C) 2017, <COMPANY>
-%%% @doc
-%%%
-%%% @end
-%%% Created : 14. Sep 2017 18:22
-%%%-------------------------------------------------------------------
 -module(es3_app).
 -author("pravosudov").
 
@@ -36,28 +28,18 @@
                {ok, pid(), State :: term()} |
                {error, Reason :: term()}).
 start(_StartType, _StartArgs) ->
-    
     {ok, Nodes} = application:get_env(es3, nodes),
-
-    io:format("---------START ~p~n", [Nodes]),
-
     lists:foreach(fun(N) ->
-        Res = net_adm:ping(N),
-
-        io:format("---------START ~p~n", [Res])
-
+        net_adm:ping(N)
     end, Nodes),
-    
-    io:format("---------START ~p~n", [{?MODULE, start}]),
-
+    {ok, Port} = application:get_env(es3, api_port),
     Dispatch = cowboy_router:compile([
         {'_', [{"/", es3_api_handler, []}]}
     ]),
     {ok, _} = cowboy:start_clear(es3_api,
-        [{port, 5555}],
+        [{port, Port}],
         #{env => #{dispatch => Dispatch}}
     ),
-    
     case es3_sup:start_link() of
         {ok, Pid} ->
             {ok, Pid};

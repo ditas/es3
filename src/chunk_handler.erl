@@ -1,11 +1,3 @@
-%%%-------------------------------------------------------------------
-%%% @author d.pravosudov
-%%% @copyright (C) 2019, <COMPANY>
-%%% @doc
-%%%
-%%% @end
-%%% Created : 21. Апр. 2019 23:25
-%%%-------------------------------------------------------------------
 -module(chunk_handler).
 -author("d.pravosudov").
 
@@ -80,9 +72,6 @@ start_link(FileName, I, Type) ->
 %% @end
 %%--------------------------------------------------------------------
 init([BinFileName, I, Type]) ->
-
-    lager:debug("-----INIT CHUNK HANDLER ~p", [{BinFileName, I}]),
-
     FileName = binary_to_list(BinFileName),
     ChunkFileName = FileName ++ "_" ++ integer_to_list(I),
     {ok, File} = file:open(ChunkFileName, [binary, read, write]),
@@ -161,9 +150,6 @@ handle_info(_Info, State) ->
 -spec(terminate(Reason :: (normal | shutdown | {shutdown, term()} | term()),
     State :: #state{}) -> term()).
 terminate(_Reason, #state{type = Type, filename = FileName}) ->
-
-    lager:debug("----- ~p stopped", [{?MODULE, self()}]),
-
     chunk_controller:remove_handler(Type, list_to_binary(FileName), self()),
     ok.
 

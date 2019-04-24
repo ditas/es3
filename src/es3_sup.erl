@@ -1,11 +1,3 @@
-%%%-------------------------------------------------------------------
-%%% @author dmitryditas
-%%% @copyright (C) 2018, <COMPANY>
-%%% @doc
-%%%
-%%% @end
-%%% Created : 27. Нояб. 2018 17:13
-%%%-------------------------------------------------------------------
 -module(es3_sup).
 -author("dmitryditas").
 
@@ -58,9 +50,6 @@ start_link() ->
     ignore |
     {error, Reason :: term()}).
 init([]) ->
-    
-    io:format("---------INIT ~p~n", [{?MODULE, init}]),
-    
     RestartStrategy = one_for_one,
     MaxRestarts = 10,
     MaxSecondsBetweenRestarts = 60,
@@ -76,12 +65,6 @@ init([]) ->
 
     AChild1 = {chunks, {chunk_controller, start_link, []},
         Restart, Shutdown, Type, [chunk_controller]},
-
-    _AChild1 = {executor_controller, {executor_controller, start_link, []},
-        Restart, Shutdown, Type, [executor_controller]},
-
-    _AChild2 = {reducer_controller, {reducer_controller, start_link, []},
-        Restart, Shutdown, Type, [reducer_controller]},
     
     {ok, {SupFlags, [AChild, AChild1]}}.
 

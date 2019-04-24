@@ -1,11 +1,3 @@
-%%%-------------------------------------------------------------------
-%%% @author d.pravosudov
-%%% @copyright (C) 2019, <COMPANY>
-%%% @doc
-%%%
-%%% @end
-%%% Created : 21. Апр. 2019 22:19
-%%%-------------------------------------------------------------------
 -module(chunk_controller).
 -author("d.pravosudov").
 
@@ -143,8 +135,6 @@ handle_call({initialize_writers, FileName, Length}, _From, State) ->
     {ok, ChunkSize} = application:get_env(es3, chunk_size),
     ChunksCount = ceil(Length/ChunkSize),
 
-    lager:debug("---------INITIALIZE ~p", [{?MODULE, node()}]),
-
     State1 = prepare(FileName, ChunksCount, State),
 
     {reply, initialized, State1};
@@ -165,15 +155,15 @@ handle_call({write, FileName, Data}, _From, #state{chunks_handlers = CH, chunks_
             Node = lists:nth(Rem, Nodes),
             case rpc:call(Node, chunk_controller, write_local, [FileName, Data, CurrentChunksCounter]) of
                 {badrpc, Reason} ->
-                    lager:error("file saving failed ~p ~p", [Node, Reason]);
+                    error(Reason);
                 saved -> %% saved
-                    lager:debug("file saved on node ~p ~p", [Node, saved])
+                    ok
             end,
             CH
     end,
     State1 = State#state{chunks_handlers = CH1, chunks_counters = maps:put(FileName, CurrentChunksCounter + 1, CC)},
 
-    io:format("---WRITE--- ~p~n", [State1]),
+%%    io:format("---WRITE--- ~p~n", [State1]),
 
     {reply, saved, State1};
 handle_call({write_local, FileName, Data, CC}, _From, #state{chunks_handlers = CH} = State) ->
@@ -187,15 +177,9 @@ handle_call({metadata, FileName}, _From, #state{metadata = MD} = State) ->
         List ->
             [{node(), List}|find_metadata(FileName)]
     end,
-
-    lager:debug("-----METADATA ~p", [Data]),
-
     {reply, organize(Data), State};
 handle_call({metadata_local, FileName}, _From, #state{metadata = MD} = State) ->
     Data = maps:get(FileName, MD, []),
-
-    lager:debug("-----METADATA LOCAL ~p", [Data]),
-
     {reply, Data, State};
 handle_call({initialize_readers, FileName, MetaData}, _From, #state{chunks_readers = CR} = State) ->
     CurrentChunksReaders = maps:get(FileName, CR, []),
@@ -207,16 +191,13 @@ handle_call({initialize_readers, FileName, MetaData}, _From, #state{chunks_reade
             false ->
                 case rpc:call(Node, chunk_controller, initialize_readers_local, [FileName, I]) of
                    {badrpc, Reason} ->
-                       lager:error("reader initialization failed ~p ~p", [Node, Reason]);
+                       error(Reason);
                    initialized ->
-                       lager:debug("chunk handlers started on node ~p ~p", [Node, initialized])
+                       ok
                 end,
                 Acc
         end
     end, CurrentChunksReaders, MetaData),
-
-    lager:debug("-----INITIALIZE READERS ~p", [{State#state{chunks_readers = maps:put(FileName, CurrentChunksReaders1, CR)}, CurrentChunksReaders1}]),
-
     {reply, initialized, State#state{chunks_readers = maps:put(FileName, CurrentChunksReaders1, CR)}};
 handle_call({initialize_readers_local, FileName, I}, _From, #state{chunks_readers = CR} = State) ->
     CurrentChunksReaders = maps:get(FileName, CR, []),
@@ -224,9 +205,6 @@ handle_call({initialize_readers_local, FileName, I}, _From, #state{chunks_reader
     {reply, initialized, State#state{chunks_readers = maps:put(FileName, [{I, Pid}|CurrentChunksReaders], CR)}};
 handle_call({read, FileName, I, Node}, _From, #state{chunks_readers = CR} = State) when Node == node() ->
     CurrentChunksReaders = maps:get(FileName, CR),
-
-    lager:debug("-----READERS ~p", [{CurrentChunksReaders, I}]),
-
     {I, Pid} = lists:keyfind(I, 1, CurrentChunksReaders),
     Data = chunk_handler:read(Pid),
     ok = chunk_handler:stop(Pid, normal),
@@ -234,7 +212,7 @@ handle_call({read, FileName, I, Node}, _From, #state{chunks_readers = CR} = Stat
 handle_call({read, FileName, I, Node}, _From, State) ->
     Data = case rpc:call(Node, chunk_controller, read_local, [FileName, I]) of
         {badrpc, Reason} ->
-            lager:error("file read failed ~p ~p", [Node, Reason]);
+            error(Reason);
         Bin ->
             Bin
     end,
@@ -284,7 +262,7 @@ handle_cast({writer, FileName, Pid}, #state{chunks_handlers = CW, chunks_counter
             end
     end,
 
-    io:format("---REMOVE WRITER--- ~p~n", [State1]),
+%%    io:format("---REMOVE WRITER--- ~p~n", [State1]),
 
     {noreply, State1};
 handle_cast({reader, FileName, Pid}, #state{chunks_readers = CR} = State) ->
@@ -302,7 +280,7 @@ handle_cast({reader, FileName, Pid}, #state{chunks_readers = CR} = State) ->
                      end
              end,
 
-    io:format("---REMOVE READER--- ~p~n", [State1]),
+%%    io:format("---REMOVE READER--- ~p~n", [State1]),
 
     {noreply, State1};
 handle_cast({eraser, FileName, Pid}, #state{chunks_readers = CR, metadata = MD} = State) ->
@@ -320,7 +298,7 @@ handle_cast({eraser, FileName, Pid}, #state{chunks_readers = CR, metadata = MD} 
                      end
              end,
 
-    io:format("---REMOVE READER--- ~p~n", [State1]),
+%%    io:format("---REMOVE READER--- ~p~n", [State1]),
 
     {noreply, State1};
 handle_cast(_Request, State) ->
@@ -341,9 +319,6 @@ handle_cast(_Request, State) ->
     {noreply, NewState :: #state{}, timeout() | hibernate} |
     {stop, Reason :: term(), NewState :: #state{}}).
 handle_info(_Info, State) ->
-
-    lager:error("----TRAPPED EXIT ~p", [_Info]),
-
     {noreply, State}.
 
 %%--------------------------------------------------------------------
@@ -386,7 +361,7 @@ prepare(FileName, ChunksCount, State) ->
         case (I rem N) of
             0 ->
 
-                io:format("---PREPARE LOCAL--- ~p~n", [I]),
+%%                io:format("---PREPARE LOCAL--- ~p~n", [I]),
 
                 CurrentChunkHandlers = maps:get(FileName, CH, []),
                 {ok, Pid} = chunk_handler:start_link(FileName, I, writer),
@@ -394,21 +369,21 @@ prepare(FileName, ChunksCount, State) ->
                 S1;
             Rem ->
 
-                io:format("---PREPARE REMOTE--- ~p~n", [I]),
+%%                io:format("---PREPARE REMOTE--- ~p~n", [I]),
 
                 Node = lists:nth(Rem, Nodes),
 
                 case rpc:call(Node, chunk_controller, initialize_writers_local, [FileName, I, writer]) of
                     {badrpc, Reason} ->
-                        lager:error("node start failed ~p ~p", [Node, Reason]);
-                    Res -> %% initialized??????????
-                        lager:debug("chunk handlers started on node ~p ~p", [Node, Res])
+                        error(Reason);
+                    initialized -> %% initialized
+                        ok
                 end,
                 S
         end
     end, State, lists:seq(1, ChunksCount)),
 
-    io:format("---PREPARE ALL DONE--- ~p~n", [State1]),
+%%    io:format("---PREPARE ALL DONE--- ~p~n", [State1]),
 
     State1.
 
@@ -426,7 +401,7 @@ find_metadata(FileName) ->
     lists:foldl(fun(N, Acc) ->
         case rpc:call(N, chunk_controller, metadata_local, [FileName]) of
             {badrpc, Reason} ->
-                lager:error("metadata failed ~p ~p", [N, Reason]);
+                error(Reason);
             List ->
                 [{N, List}|Acc]
         end
@@ -452,7 +427,7 @@ do_delete(FileName, CurrentChunksReaders, [{I, Node}|T]) when Node == node() ->
 do_delete(FileName, CurrentChunksReaders, [{I, Node}|T]) ->
     case rpc:call(Node, chunk_controller, delete_local, [FileName, I]) of
         {badrpc, Reason} ->
-            lager:error("file deletion failed ~p ~p", [Node, Reason]);
+            error(Reason);
         deleted ->
             do_delete(FileName, CurrentChunksReaders, T)
     end.
