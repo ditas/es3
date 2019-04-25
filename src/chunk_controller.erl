@@ -163,7 +163,7 @@ handle_call({write, FileName, Data}, _From, #state{chunks_handlers = CH, chunks_
     end,
     State1 = State#state{chunks_handlers = CH1, chunks_counters = maps:put(FileName, CurrentChunksCounter + 1, CC)},
 
-%%    io:format("---WRITE--- ~p~n", [State1]),
+   io:format("---WRITE--- ~p~n", [State1]),
 
     {reply, saved, State1};
 handle_call({write_local, FileName, Data, CC}, _From, #state{chunks_handlers = CH} = State) ->
@@ -223,15 +223,15 @@ handle_call({read_local, FileName, I}, _From, #state{chunks_readers = CR} = Stat
     Data = chunk_handler:read(Pid),
     ok = chunk_handler:stop(Pid, normal),
     {reply, Data, State};
-handle_call({delete, FileName, MetaData}, _From, #state{chunks_readers = CR} = State) ->
+handle_call({delete, FileName, MetaData}, _From, #state{chunks_readers = CR, metadata = MD} = State) ->
     CurrentChunksReaders = maps:get(FileName, CR),
     deleted = do_delete(FileName, CurrentChunksReaders, MetaData),
-    {reply, deleted, State};
-handle_call({delete_local, FileName, I}, _From, #state{chunks_readers = CR} = State) ->
+    {reply, deleted, State#state{metadata = maps:remove(FileName, MD)}};
+handle_call({delete_local, FileName, I}, _From, #state{chunks_readers = CR, metadata = MD} = State) ->
     CurrentChunksReaders = maps:get(FileName, CR),
     {I, Pid} = lists:keyfind(I, 1, CurrentChunksReaders),
     ok = chunk_handler:delete(Pid),
-    {reply, deleted, State};
+    {reply, deleted, State#state{metadata = maps:remove(FileName, MD)}};
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
@@ -262,7 +262,7 @@ handle_cast({writer, FileName, Pid}, #state{chunks_handlers = CW, chunks_counter
             end
     end,
 
-%%    io:format("---REMOVE WRITER--- ~p~n", [State1]),
+   io:format("---REMOVE WRITER--- ~p~n", [State1]),
 
     {noreply, State1};
 handle_cast({reader, FileName, Pid}, #state{chunks_readers = CR} = State) ->
@@ -280,7 +280,7 @@ handle_cast({reader, FileName, Pid}, #state{chunks_readers = CR} = State) ->
                      end
              end,
 
-%%    io:format("---REMOVE READER--- ~p~n", [State1]),
+   io:format("---REMOVE READER--- ~p~n", [State1]),
 
     {noreply, State1};
 handle_cast({eraser, FileName, Pid}, #state{chunks_readers = CR, metadata = MD} = State) ->
@@ -298,7 +298,7 @@ handle_cast({eraser, FileName, Pid}, #state{chunks_readers = CR, metadata = MD} 
                      end
              end,
 
-%%    io:format("---REMOVE READER--- ~p~n", [State1]),
+   io:format("---REMOVE READER--- ~p~n", [State1]),
 
     {noreply, State1};
 handle_cast(_Request, State) ->
@@ -361,7 +361,7 @@ prepare(FileName, ChunksCount, State) ->
         case (I rem N) of
             0 ->
 
-%%                io:format("---PREPARE LOCAL--- ~p~n", [I]),
+               io:format("---PREPARE LOCAL--- ~p~n", [I]),
 
                 CurrentChunkHandlers = maps:get(FileName, CH, []),
                 {ok, Pid} = chunk_handler:start_link(FileName, I, writer),
@@ -369,7 +369,7 @@ prepare(FileName, ChunksCount, State) ->
                 S1;
             Rem ->
 
-%%                io:format("---PREPARE REMOTE--- ~p~n", [I]),
+               io:format("---PREPARE REMOTE--- ~p~n", [I]),
 
                 Node = lists:nth(Rem, Nodes),
 
@@ -383,7 +383,7 @@ prepare(FileName, ChunksCount, State) ->
         end
     end, State, lists:seq(1, ChunksCount)),
 
-%%    io:format("---PREPARE ALL DONE--- ~p~n", [State1]),
+   io:format("---PREPARE ALL DONE--- ~p~n", [State1]),
 
     State1.
 
