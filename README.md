@@ -3,7 +3,6 @@
 **Stores large files in distributed manner**
 
 ## How to use
-
 The simpliest way to use (**assuming you have erlang installed on your machine**) is `console.sh` file
 
 ```bash
@@ -54,5 +53,11 @@ Use your favorite browser and go to the `http://localhost:5555/?action=read&name
 
 ## Deleting files
 Use your favorite browser and go to the `http://localhost:5555/?action=delete&name=googlechrome.dmg`
+
+## How it works
+Application starts with cowboy listener and application supervisor starts `chunk_controller` module.
+When cowboy gets incoming request it starts API handler. API handler uses `chunk_controller` exported functions to initialize `chunk_handler` modules. Controller uses async cast to put each piece of file into handlers respectively it's number. Handlers write data to the file system.
+So, main idea is to avoid RAM overflow in case of large file. Every handler process writes its piece of file synchronously but as controller get the file by chunks that is unlikely to this problem.
+However, reading is made in synchronous way. Here is some space to improve the reading process by partial data preloading but it is a topic for another discussion.
 
 ***IN PROGRESS: add common tests***
