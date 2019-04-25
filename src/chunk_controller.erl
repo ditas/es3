@@ -133,7 +133,7 @@ init([]) ->
     {stop, Reason :: term(), NewState :: #state{}}).
 handle_call({initialize_writers, FileName, Length}, _From, State) ->
     {ok, ChunkSize} = application:get_env(es3, chunk_size),
-    ChunksCount = ceil(Length/ChunkSize),
+    ChunksCount = ceil(Length/list_to_integer(ChunkSize)),
 
     State1 = prepare(FileName, ChunksCount, State),
 

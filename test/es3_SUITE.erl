@@ -3,6 +3,8 @@
 
 -include_lib("common_test/include/ct.hrl").
 
+-define(FILENAME, "test.md").
+
 %% API
 -export([
     all/0,
@@ -37,7 +39,7 @@ end_per_suite(_Config) ->
 
 write_test(_Config) ->
     Port = ct:get_config(master_api_port),
-    FileName = "test.pdf",
+    FileName = ?FILENAME,
     FilePath = "../../../../test/" ++ FileName,
     Boundary = "------WebKitFormBoundary1234567890123456",
 
@@ -54,17 +56,17 @@ write_test(_Config) ->
 
 read_test(_Config) ->
     Port = ct:get_config(master_api_port),
-    FileName = "test.pdf",
+    FileName = ?FILENAME,
 
     ct:sleep(1000),
 
     {ok, {{_ ,200 , _}, _, Bin}} = httpc:request(get,{"http://localhost:" ++ integer_to_list(Port) ++ "/?action=read&name=" ++ FileName, []},[],[]),
 
-    1982432 = length(Bin).
+    2448 = length(Bin).
 
 delete_test(_Config) ->
     Port = ct:get_config(master_api_port),
-    FileName = "test.pdf",
+    FileName = ?FILENAME,
 
     ct:sleep(1000),
 
@@ -72,7 +74,7 @@ delete_test(_Config) ->
 
 read_failed_test(_Config) ->
     Port = ct:get_config(master_api_port),
-    FileName = "test.pdf",
+    FileName = ?FILENAME,
 
     ct:sleep(1000),
 
@@ -80,7 +82,7 @@ read_failed_test(_Config) ->
 
 delete_failed_test(_Config) ->
     Port = ct:get_config(master_api_port),
-    FileName = "test.pdf",
+    FileName = ?FILENAME,
 
     ct:sleep(1000),
 

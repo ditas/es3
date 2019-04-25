@@ -29,15 +29,21 @@
                {error, Reason :: term()}).
 start(_StartType, _StartArgs) ->
     {ok, Nodes} = application:get_env(es3, nodes),
+
+    io:format("---------NODES ~p~n", [Nodes]),
+
     lists:foreach(fun(N) ->
-        net_adm:ping(N)
+        T = net_adm:ping(N),
+
+        io:format("---------NODES CONNECT ~p~n", [T])
+
     end, Nodes),
     {ok, Port} = application:get_env(es3, api_port),
     Dispatch = cowboy_router:compile([
         {'_', [{"/", es3_api_handler, []}]}
     ]),
     {ok, _} = cowboy:start_clear(es3_api,
-        [{port, Port}],
+        [{port, list_to_integer(Port)}],
         #{env => #{dispatch => Dispatch}}
     ),
     case es3_sup:start_link() of

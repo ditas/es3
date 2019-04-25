@@ -71,9 +71,6 @@ action(_, _, _, Req) ->
     Reply = #reply{code = 200, headers = #{"content-type" => "application/json"}, body = response({error, "wrong request"}), req = Req},
     cowboy_req:reply(Reply#reply.code, Reply#reply.headers, Reply#reply.body, Reply#reply.req).
 
-%%send_file([], _FileName, Req) ->
-%%    Reply = #reply{code = 200, headers = #{"content-type" => "application/json"}, body = response({error, "file not found"}), req = Req},
-%%    cowboy_req:reply(Reply#reply.code, Reply#reply.headers, Reply#reply.body, Reply#reply.req);
 send_file(MetaData, FileName, Req) ->
     Req1 = cowboy_req:stream_reply(200, #{"content-disposition" => "filename=" ++ binary_to_list(FileName)}, Req),
     send_chunks(MetaData, FileName, Req1),
@@ -105,7 +102,7 @@ handle_file(Req, Length) ->
 
 stream_file(FileName, Req) ->
     {ok, ChunkSize} = application:get_env(es3, chunk_size),
-    case cowboy_req:read_part_body(Req, #{length => ChunkSize}) of
+    case cowboy_req:read_part_body(Req, #{length => list_to_integer(ChunkSize)}) of
         {ok, LastBodyChunk, Req1} ->
             chunk_controller:write(FileName, LastBodyChunk),
             Req1;

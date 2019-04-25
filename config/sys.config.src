@@ -9,5 +9,13 @@
         ]}
     ]},
 
-    "es3.config"
+    {es3, [
+        {api_port, "${PORT}"},
+        {nodes, [
+            'node_1@127.0.0.1',
+            'node_2@127.0.0.1',
+            'node_3@127.0.0.1'
+        ]},
+        {chunk_size, "${CHUNK_SIZE}"}
+    ]}
 ].
