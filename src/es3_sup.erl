@@ -59,14 +59,11 @@ init([]) ->
     Restart = permanent,
     Shutdown = infinity,
     Type = worker,
-    
-    AChild = {metadata, {metadata_handler, start_link, []},
-        Restart, Shutdown, Type, [metadata_handler]},
 
-    AChild1 = {chunks, {chunk_controller, start_link, []},
+    AChild = {chunks, {chunk_controller, start_link, []},
         Restart, Shutdown, Type, [chunk_controller]},
     
-    {ok, {SupFlags, [AChild, AChild1]}}.
+    {ok, {SupFlags, [AChild]}}.
 
 %%%===================================================================
 %%% Internal functions
