@@ -36,6 +36,9 @@
 %%% API
 %%%===================================================================
 write(Pid, Data, N) ->
+
+    io:format("--------WRITE ~p~n", [{node(), ?MODULE, N}]),
+
     gen_server:cast(Pid, {write, Data, N}).
 
 read(Pid) ->
@@ -72,6 +75,9 @@ start_link(FileName, I, Type) ->
 %% @end
 %%--------------------------------------------------------------------
 init([BinFileName, I, Type]) ->
+
+    io:format("--------INIT ~p~n", [{node(), ?MODULE, BinFileName, Type, I}]),
+
     FileName = binary_to_list(BinFileName),
     ChunkFileName = FileName ++ "_" ++ integer_to_list(I),
     {ok, File} = file:open(ChunkFileName, [binary, read, write]),
@@ -110,7 +116,10 @@ handle_call(_Request, _From, State) ->
     {noreply, NewState :: #state{}} |
     {noreply, NewState :: #state{}, timeout() | hibernate} |
     {stop, Reason :: term(), NewState :: #state{}}).
-handle_cast({write, Data, N}, #state{file = File, chunk_number = I} = State) ->
+handle_cast({write, Data, N}, #state{file = File, chunk_number = I, chunkfilename = ChunkFileName} = State) ->
+
+    io:format("--------WRITE ~p~n", [{node(), ?MODULE, ChunkFileName, N}]),
+
     ok = file:write(File, Data),
     {stop, normal, State};
 handle_cast(delete, #state{chunkfilename = ChunkFileName} = State) ->

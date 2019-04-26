@@ -62,9 +62,15 @@ initialize_writers_local(FileName, I, Type) ->
     gen_server:call(?SERVER, {initialize_writers_local, FileName, I, Type}, infinity).
 
 write(FileName, Data) ->
+
+    io:format("---WRITE 1---~n"),
+
     gen_server:call(?SERVER, {write, FileName, Data}, infinity).
 
 write_local(FileName, Data, CurrentChunksCounter) ->
+
+    io:format("---WRITE 2---~n"),
+
     gen_server:call(?SERVER, {write_local, FileName, Data, CurrentChunksCounter}, infinity).
 
 metadata(FileName) ->
@@ -143,30 +149,54 @@ handle_call({initialize_writers_local, FileName, I, Type}, _From, #state{chunks_
     {ok, Pid} = chunk_handler:start_link(FileName, I, Type),
     {reply, initialized, State#state{chunks_handlers = maps:put(FileName, [{I, Pid, passive}|CurrentChunksHandlers], CH)}};
 handle_call({write, FileName, Data}, _From, #state{chunks_handlers = CH, chunks_counters = CC} = State) ->
+
+    io:format("---WRITE 3---~n"),
+
     CurrentChunksHandlers = maps:get(FileName, CH, []),
-    CurrentChunksCounter = maps:get(FileName, CC),
+    CurrentChunksCounter = maps:get(FileName, CC, 0),
     Nodes = nodes(),
     N = length(Nodes) + 1,
+
+    io:format("---------------------------HANDLE CALL WRITE----- ~p~n", [{CurrentChunksCounter, N, (CurrentChunksCounter rem N)}]),
+
     CH1 = case (CurrentChunksCounter rem N) of
         0 ->
+
+            io:format("---WRITE 3.1---~n"),
+
             CurrentChunksHandlers1 = do_write(CurrentChunksHandlers, Data, CurrentChunksCounter),
             maps:put(FileName, CurrentChunksHandlers1, CH);
         Rem ->
+
+            io:format("---WRITE 3.2---~n"),
+
             Node = lists:nth(Rem, Nodes),
+
+            io:format("---WRITE NODE---~p~n", [Node]),
+
             case rpc:call(Node, chunk_controller, write_local, [FileName, Data, CurrentChunksCounter]) of
                 {badrpc, Reason} ->
+
+                    io:format("---WRITE 3.2.1---~n"),
+
                     error(Reason);
                 saved -> %% saved
+
+                    io:format("---WRITE 3.2.2---~n"),
+
                     ok
             end,
             CH
     end,
     State1 = State#state{chunks_handlers = CH1, chunks_counters = maps:put(FileName, CurrentChunksCounter + 1, CC)},
 
-   io:format("---WRITE--- ~p~n", [State1]),
+   io:format("---WRITE MAIN--- ~p~n", [State1]),
 
     {reply, saved, State1};
 handle_call({write_local, FileName, Data, CC}, _From, #state{chunks_handlers = CH} = State) ->
+
+    io:format("---WRITE LOCAL---~n"),
+
     CurrentChunksHandlers = maps:get(FileName, CH, []),
     CurrentChunksHandlers1 = do_write(CurrentChunksHandlers, Data, CC),
     {reply, saved, State#state{chunks_handlers = maps:put(FileName, CurrentChunksHandlers1, CH)}};
@@ -250,13 +280,15 @@ handle_cast({writer, FileName, Pid}, #state{chunks_handlers = CW, chunks_counter
     CurrentMD = maps:get(FileName, MD, []),
     State1 = case maps:get(FileName, CW, []) of
         [] ->
-            State#state{chunks_handlers = maps:remove(FileName, CW), chunks_counters = maps:remove(FileName, CC)};
+%%            State#state{chunks_handlers = maps:remove(FileName, CW), chunks_counters = maps:remove(FileName, CC)};
+            State#state{chunks_handlers = maps:remove(FileName, CW)};
         Writers ->
             case lists:keytake(Pid, 2, Writers) of
                 {value, {I, Pid, _Status}, Writers1} when Writers1 =/= [] ->
                     State#state{chunks_handlers = maps:put(FileName, Writers1, CW), metadata = maps:put(FileName, [I|CurrentMD], MD)};
                 {value, {I, Pid, _Status}, Writers1} ->
-                    State#state{chunks_handlers = maps:remove(FileName, CW), chunks_counters = maps:remove(FileName, CC), metadata = maps:put(FileName, [I|CurrentMD], MD)};
+%%                    State#state{chunks_handlers = maps:remove(FileName, CW), chunks_counters = maps:remove(FileName, CC), metadata = maps:put(FileName, [I|CurrentMD], MD)};
+                    State#state{chunks_handlers = maps:remove(FileName, CW), metadata = maps:put(FileName, [I|CurrentMD], MD)};
                 false ->
                     State
             end
@@ -368,10 +400,9 @@ prepare(FileName, ChunksCount, State) ->
                 S1 = S#state{chunks_handlers = maps:put(FileName, [{I, Pid, passive}|CurrentChunkHandlers], CH), chunks_counters = maps:put(FileName, 1, CC)},
                 S1;
             Rem ->
-
-               io:format("---PREPARE REMOTE--- ~p~n", [I]),
-
                 Node = lists:nth(Rem, Nodes),
+
+                io:format("---PREPARE REMOTE--- ~p~n", [{I, Node}]),
 
                 case rpc:call(Node, chunk_controller, initialize_writers_local, [FileName, I, writer]) of
                     {badrpc, Reason} ->
@@ -387,6 +418,11 @@ prepare(FileName, ChunksCount, State) ->
 
     State1.
 
+do_write([], Data, ChunksCounter) ->
+
+    io:format("--------------------ERROR-------------------- ~p~n", [{node(), ChunksCounter}]),
+
+    [];
 do_write(ChunksHandlers, Data, ChunksCounter) ->
     do_write(ChunksHandlers, Data, ChunksCounter, []).
 

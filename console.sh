@@ -12,7 +12,7 @@ fi
 
 export NODE_NAME=node_1
 export PORT=5551
-export CHUNK_SIZE=5000000
+export CHUNK_SIZE=1000000
 
 #./rebar3 upgrade
 ./rebar3 as $PROFILE release
