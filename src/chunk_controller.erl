@@ -418,11 +418,11 @@ prepare(FileName, ChunksCount, State) ->
 
     State1.
 
-do_write([], Data, ChunksCounter) ->
-
-    io:format("--------------------ERROR-------------------- ~p~n", [{node(), ChunksCounter}]),
-
-    [];
+%%do_write([], Data, ChunksCounter) ->
+%%
+%%    io:format("--------------------ERROR-------------------- ~p~n", [{node(), ChunksCounter}]),
+%%
+%%    [];
 do_write(ChunksHandlers, Data, ChunksCounter) ->
     do_write(ChunksHandlers, Data, ChunksCounter, []).
 
