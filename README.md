@@ -45,10 +45,10 @@ curl -F test=123 -F 'file=@googlechrome.dmg' http://localhost:5551
 ```
 
 ## Receiving files
-Use your favorite browser and go to the `http://localhost:5555/?action=read&name=googlechrome.dmg`
+Use your favorite browser and go to the `http://localhost:5551/?action=read&name=googlechrome.dmg`
 
 ## Deleting files
-Use your favorite browser and go to the `http://localhost:5555/?action=delete&name=googlechrome.dmg`
+Use your favorite browser and go to the `http://localhost:5551/?action=delete&name=googlechrome.dmg`
 
 ## How it works
 Application starts with cowboy listener and application supervisor starts `chunk_controller` module.
