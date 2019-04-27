@@ -56,6 +56,9 @@ When cowboy gets incoming request it starts API handler. API handler uses `chunk
 So, main idea is to avoid RAM overflow in case of large file. Every handler process writes its piece of file asynchronously but as controller get the file by chunks that is unlikely to have this problem.
 However, reading is made in synchronous way. Here is some space to improve the reading process by partial data preloading but it is a topic for another discussion.
 
+## Ways to improve
+There're some details to improve. First of all I'd definitely improve the way of the chunks metadata stored. In this version all the chunks data is stored into the `chunk_controller` state, which is basically means in the RAM. I guess it's okay for the test purposes, but in production it has to be stored into some persistent storage (e.g. Mnesia, `disk_copies` mode).
+
 ## Issues
 Don't forget to stop the running nodes otherwise you'll get the error like `Protocol 'inet_tcp': the name node_2@127.0.0.1 seems to be in use by another Erlang node` or some other error about `epmd`.
 If you face with theses errors just kill the running erlang nodes
